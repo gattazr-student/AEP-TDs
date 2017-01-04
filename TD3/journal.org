@@ -1,0 +1,180 @@
+# -*- coding: utf-8 -*-
+#+STARTUP: overview indent inlineimages
+#+TITLE:       
+#+AUTHOR:      Rémi GATTAZ
+#+LANGUAGE:    en
+#+TAGS: IMPORTANT(i) TEST(t) DEPRECATED(d) noexport(n)
+
+* TD Simulation à évènements discrets de files  d'attentes
+
+** Génération d'évènements
+
+- Variables
+  - t_in
+  - t_out
+  - t_s
+  - t_r
+  - Waiting
+  - Running
+  - t
+
+#+begin_src R :results output :session :exports both
+exp_t_in = function(N, lambda){
+    cumsum(rexp(N, lambda))
+}
+
+exp_t_s = function(N, mu){
+    rexp(N, mu)
+}
+
+det_t_s = function(N, mu){
+    rep(times=N, 1/mu)
+}
+
+unif_t_s = function(N, mu){
+    runif(N, min=.5/mu, max=1.5/mu)
+}
+
+
+simulate = function(N, lambda=.5, mu=1, schedule="fifo", gen_t_in=exp_t_in, gen_t_s=exp_t_s){
+
+    update_running = function(){
+        t_r[running] <<- t_r[running] - dt
+        if(t_r[running] == 0){
+            t_out[running] <<- t + dt
+            running <<- NA
+        }
+    }
+
+    push_task = function(){
+        #print("NEW TASK")
+        switch(schedule,
+            fifo={
+                # FIFO: Tache ajouté en fin de liste
+                waiting <<- c(waiting, next_arrival)
+                if(next_arrival < N){
+                    next_arrival <<- next_arrival + 1
+                }else{
+                    next_arrival <<- NA
+                }
+            },
+            lifo={
+                # LIFO: Préemption. Tache courante ajouté en fin de list, nouvelle tache en running
+                waiting <<- c(waiting, running)
+                running <<- next_arrival
+                if(next_arrival < N){
+                    next_arrival <<- next_arrival + 1
+                }else{
+                    next_arrival <<- NA
+                }
+            }
+        )
+    }
+
+    run_task = function(){
+        #print("RUN TASK")
+        # Replace task if none are running
+        if(is.na(running)){
+            nbAttentes = length(waiting)
+            if(nbAttentes > 0){
+                #print("SET NEW RUNNING TASK")
+                switch(schedule,
+                    fifo={
+                        # FIFO : On retire le premier élement de waiting
+                        running <<- waiting[1]
+                        waiting <<- waiting[-1]
+                    },
+                    lifo={
+                        # LIFO : On retire le dernier élement de waiting
+                        running <<- waiting[nbAttentes]
+                        waiting <<- waiting[-nbAttentes]
+                    }
+                )
+            }
+        }
+    }
+
+
+    if(lambda >= mu){
+        print("lambda must be inferior to mu")
+        return(NA)
+    }
+
+    t_in <- gen_t_in(N, lambda)
+    t_out <- rep(NA, N)
+    t_s <- gen_t_s(N, mu)
+    t_r <- t_s
+
+    running <- NA
+    waiting <- c()
+    t <- 0
+    next_arrival <- 1;
+
+
+    #print("STARTING")
+    while(!(is.na(next_arrival) & is.na(running))){
+        #print("#######################")
+        dt1 <- NA
+        dt2 <- NA
+        if(!is.na(next_arrival)){ dt1 <- t_in[next_arrival] - t }
+        if(!is.na(running)){ dt2 <- t_r[running] } 
+        dt <- min(c(dt1, dt2), na.rm=T)
+        t <- t + dt
+        
+        if(!is.na(running)) { update_running() }
+        if((!is.na(next_arrival)) & (t == t_in[next_arrival])){ push_task() }
+        run_task()
+    }
+    #print("FINISHED")
+
+    data.frame(t_in, t_out, t_s)
+}
+#+end_src
+
+#+RESULTS:
+
+
+** Gestion FIFO
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+
+res=data.frame();
+for(lambda in c(seq(from=.01, to = .99, by = .1))) {
+    df = simulate(N=10000,lambda=lambda);
+    t_resp = df$t_out - df$t_in;
+    res = rbind(res, data.frame(lambda=lambda, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+}
+res
+
+library(ggplot2);
+myrate = function(x) {1/(1-x)}
+ggplot(res, aes(x=lambda,y=resp_avg)) + geom_point() + geom_line() + 
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    xlim(0,1)  + ylim(0,10)  +   stat_function(fun = function(x) {1/(1-x)}, geom = "line",color="red")
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-63418Ei9/figure63418GMn.png]]
+
+
+** Gestion LIFO
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+res=data.frame();
+for(lambda in c(seq(from=.01, to = .99, by = .1))) {
+    df = simulate(N=10000,lambda=lambda, schedule="lifo");
+    t_resp = df$t_out - df$t_in;
+    res = rbind(res, data.frame(lambda=lambda, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+}
+res
+
+library(ggplot2);
+myrate = function(x) {1/(1-x)}
+ggplot(res, aes(x=lambda,y=resp_avg)) + geom_point() + geom_line() + 
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    xlim(0,1)  + ylim(0,10)  +   stat_function(fun = function(x) {1/(1-x)}, geom = "line",color="red")
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-63418Ei9/figure63418TWt.png]]
+

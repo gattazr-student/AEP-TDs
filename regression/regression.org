@@ -1,0 +1,79 @@
+# -*- coding: utf-8 -*-
+#+STARTUP:
+#+TITLE:       Regression linéaire
+#+AUTHOR:      Rémi GATTAZ
+#+LANGUAGE:    en
+#+TAGS: IMPORTANT(i) TEST(t) DEPRECATED(d) noexport(n)
+
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+    N = 1000
+    X <- 10 * floor(runif(N, min=11, max=100)/10)
+    Y <- 2 + 5*X + rnorm(N, sd=20)
+
+    plot(X,Y)
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-29150BgI/figure29150zeK.png]]
+
+
+On effectue la regression sur ces donées
+#+begin_src R foo :results output :exports both :session
+    df <- data.frame(x=X, y=Y);
+    reg <- lm(data=df, y~x);
+
+    reg
+#+end_src
+
+#+RESULTS:
+: 
+: Call:
+: lm(formula = y ~ x, data = df)
+: 
+: Coefficients:
+: (Intercept)            x  
+:       2.145        4.998
+
+
+#+begin_src R foo :results output :exports both :session
+    summary(reg)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+Call:
+lm(formula = y ~ x, data = df)
+
+Residuals:
+    Min      1Q  Median      3Q     Max 
+-66.893 -13.268   0.507  14.024  61.288 
+
+Coefficients:
+            Estimate Std. Error t value Pr(>|t|)    
+(Intercept)  2.14533    1.40799   1.524    0.128    
+x            4.99786    0.02488 200.893   <2e-16 ***
+---
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Residual standard error: 20.32 on 998 degrees of freedom
+Multiple R-squared:  0.9759,	Adjusted R-squared:  0.9758 
+F-statistic: 4.036e+04 on 1 and 998 DF,  p-value: < 2.2e-16
+#+end_example
+
+
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+    library(ggplot2)
+    ggplot(data=head(df,n=100), aes(x=x, y=y)) + 
+        geom_point(alpha=.2) + 
+        theme_bw() + 
+        geom_smooth(method="lm")
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-29150BgI/figure29150a9c.png]]
+
+
+

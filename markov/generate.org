@@ -1,0 +1,129 @@
+# -*- coding: utf-8 -*-
+#+STARTUP:
+#+TITLE:       Markov chains
+#+AUTHOR:      Rémi GATTAZ
+#+LANGUAGE:    en
+#+TAGS: IMPORTANT(i) TEST(t) DEPRECATED(d) noexport(n)
+
+
+* Cas simple
+
+Imaginons un tiage entre N évènements ou A est très populaire et les N autres objets ont la même popularité
+
+#+begin_src R :results output :session :exports both
+N <- 100 # nb d'évènements
+a <- 0.1 # popularite de l'évènement A
+b <- ( 1 - a ) / (N - 1) # probabilité des évènements non A
+T <- 1000 # 
+K <- 10 # Taille du cache
+
+vectProba <- c(a, rep(b, N-1))
+
+seq <- sample(1:N, T, replace=T, prob=vectProba)
+
+head(seq, n=20)
+#+end_src
+
+#+RESULTS:
+:  [1] 91 83 33  1 76 75 62  5  2 39 80 56 11 16 74 47 59 67 61  2
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+hist(seq, breaks=100)
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-43825v2b/figure43825qBR.png]]
+
+
+#+begin_src R :results output :session :exports both
+cache <- rep(0,K)
+miss <- c()
+for(v in seq) {
+    if(v %in% cache){ # si la valeur dans la séquence est dans le cache
+        i <- 0
+        for(i in 1:K){
+            if(cache[i] == v){
+                break;
+            }
+        }
+        cache <- c(v, cache[1:(i-1)], cache[(i+1):K]) # nouvelle valeur du cach
+        miss <- c(miss, 0)
+    }
+    else{
+        cache <- c(v, cache[1:(K-1)]) # nouvelle valeur du cache
+        nbDefaults <- nbDefaults + 1
+        miss <- c(miss, 1)
+    }
+}
+
+miss
+#+end_src
+
+#+RESULTS:
+#+begin_example
+   [1] 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 0
+  [38] 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 1 1 1 1 1 0 1 1 1 1 0 1 1 1 0 0 1 1 0
+  [75] 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+ [112] 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 0 1 1 0 1 1 1 1 0 0 1 0 1 0 1 0
+ [149] 1 1 1 0 1 0 0 1 0 1 0 1 1 1 1 1 1 1 1 1 0 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1
+ [186] 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 0 1 0 1 1 1 1 1 1 1 1 1 1 1 1
+ [223] 1 1 1 1 1 1 1 0 1 0 1 0 1 1 1 0 1 0 1 1 1 1 1 1 0 1 1 1 0 1 1 1 0 1 1 1 1
+ [260] 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+ [297] 1 1 1 0 0 1 1 1 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1
+ [334] 1 1 1 1 1 1 1 0 1 0 1 1 0 0 0 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0
+ [371] 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 0 1 1 1 1 1 0 1 1 1 1 1 1 1
+ [408] 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 1 1 0 0 0 1 1 1 0 0 0 1 1 1 0
+ [445] 1 0 1 1 0 1 0 1 1 1 0 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1
+ [482] 1 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 0 1 1 1 1 1 0 1 1 1 0 1 1 0 1 1 1 1 1
+ [519] 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 0 1 1 1 1 1 1 1 1 1 1 1 0 1 1 0 1 1 0 1 1 1
+ [556] 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 1 1
+ [593] 1 1 0 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 0 1 0 1 1 1 1 1 1 0 1 1 1 1 0 1 1 1 1
+ [630] 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 0 0 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 0 1
+ [667] 1 1 1 1 1 1 1 1 0 1 0 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 0 1 1
+ [704] 1 1 0 1 0 1 1 1 1 1 1 0 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1
+ [741] 0 1 1 1 1 0 1 1 1 0 1 1 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 0 0 1 1
+ [778] 0 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 0 1 1 1 1 1 1 1 1 1
+ [815] 1 1 0 1 1 0 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 1 1 0 1 1 1 0 1 1
+ [852] 0 1 0 1 1 1 1 0 1 1 1 1 1 1 1 1 0 1 1 0 1 1 1 1 0 1 0 1 1 0 0 0 1 1 1 0 1
+ [889] 1 1 1 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 1 1 1 1 1 1
+ [926] 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1
+ [963] 1 1 1 0 1 1 1 1 1 1 1 1 0 1 1 0 1 1 1 0 1 1 1 1 1 1 1 1 0 0 1 0 1 1 1 1 1
+[1000] 1
+#+end_example
+
+
+#+begin_src R :results output graphics :file (org-babel-temp-file "figure" ".png") :exports both :width 600 :height 400 :session
+plot(miss)
+#+end_src
+
+#+RESULTS:
+[[file:/var/folders/5b/n_5t8m293v746yc7188mkq7m0000gn/T/babel-43825v2b/figure43825Rgj.png]]
+
+#+begin_src R :results output :session :exports both
+mean(miss)
+sd(miss)
+sd(miss)/sqrt(length(miss))
+#+end_src
+
+#+RESULTS:
+: [1] 0.844
+: [1] 0.3630369
+: [1] 0.01148024
+
+** La chaine de Markov
+Les deux intérêts des chaine de markov :
++ Le résultat est non biaisé. Le résultat ne dépend pas du point de départ (initialisation du cache)
++ Les résultats sont exact
+
+
+
+Regarder feuille TD Markov pour l'automate
+
+#+begin_src R :results output :session :exports both
+markovMatrix <- 
+
+# eigen
+# -> donnes les valeurs propres
+# A utiliser pour diagonaliser la variable
+
+#+end_src

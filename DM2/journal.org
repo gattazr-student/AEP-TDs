@@ -1,0 +1,483 @@
+# -*- coding: utf-8 -*-
+#+STARTUP: overview indent inlineimages
+#+TITLE:       Simulation à évènements discrets de files d'attentes
+#+AUTHOR:      Rémi GATTAZ
+#+LANGUAGE:    fr
+#+TAGS:        AEP performances polytech
+
+* DM2 : Simulation à évènements discrets de files  d'attentes
+
+** Introduction
+
+Dans le cadre d'un TD, nous avions mis en place un modèle de simation d'évènements discrets de file
+d'attente. Le code que nous avions écrit est disponible ici :
+http://mescal.imag.fr/membres/arnaud.legrand/teaching/2015/RICM4_EP.php#orgheadline5
+
+Dans ce TD, il avait était mis en place la gestion FIFO des évènements. Evènements dont les temps
+d'arrivés sont générés selon une loi exponentielles et les temps de traitements selon une loi
+exponentielle, uniforme ou déterminisite.
+
+Au cours de ce DM, nous allons modifier modifier le simulateur pour y ajouter les choses suivantes :
+- Une loi pour générer des temps de traitements selon une loi Gamma. Contrairement au lois  actuellements définies, cette loi prend deux paramètres: k et \mu. Mais nous étant donné que nous allons forcer l'espérance à 1/\mu, nous n'avons pas besoin de passer le paramètre \mu puisqu'il sera dédui de k.
+- Les politiques de gestions d'évènements LIFO, LIFO avec préemption et SRPT.
+
+Une fois ces modifications effectués, nous étudierons l'impact du taux d'arrivé, de la variance du
+taux de service et de la politique de traitements des évènements.
+
+
+** Modification du simulateur
+
+*** Ajout de la génération gamma
+Dans le code de base, il existait plusieurs types de générations possible pour les temps de traitements. Nous allons rajouter parmis ces générateurs, la possibilité de générer ces temps selon une loi \Gamma.
+
+La loi \Gamma prend deux paramètres en entrée. Mais puisque nous allons forcer la génération à suivre une loi avec une espérance valant 1, nous n'avons besoin de passer qu'un seul paramètre, le paramètre rate (\mu).
+
+La génération des temps de traitements se fait donc de la façon suiante :
+#+begin_src R
+t_s = switch(type,
+             exp = rexp(N, 1/mu),
+             det = rep(times=N, 1/mu),
+             unif = runif(N, min=.5/mu, max=1.5/mu),
+             gamma = {
+                 rate = mu
+                 shape = rate
+                 rgamma(N, shape=shape, rate=mu)
+             });
+
+#+end_src
+
+L'espérance d'une loi \Gamma(shape, rate) vaut shape/rate. Puisque rate est définit à \mu, en forçant shape=rate, nous assurons que l'espérance de la loi utilisé pour cette génération vaut 1.
+Pour autant, puisque la variance de cette loi vaut shape/rate^2, il est toujours possible de manipuler la variance de cette loi.
+Lorsque rate sera inférieur à 1, la variance sera élevé. Mais lorsque rate sera supérieur à 1, elle sera faible.
+
+
+*** Ajout des politiques
+
+Nous avons rajouté dans l'algorithme 3 politiques : LIFO, LIFO avec préemption et SRPTF.
+
+- LIFO (Last In First Out. C'est une politique daans laquelle les taches sont gérés avec une pile. C'est à dire que à chaque fois qu'une tache est terminé, la nouvelle tache a éxécuté est la dernière avoir été rajouté dans la pile.
+- LIFO avec préemption, est presque équivalente à la politique LIFO. Elle si différencie par le fait que les nouvelles taches rentrantes vont toujours remplacer les taches courantes et commencer leurs exécution immédiatement à leurs arrivés.
+- SRPTF (Shortest Remaining Processing Time First) est une politique qui privilégie les taches courtes. Dans cette politique, ce sont les taches dont les temps de traitements restant sont les plus faibles qui sont éxécutés en premier. Dans la politique il y a de la préemption. C'est à dire que si la nouvelle tache à un temps de traitement inférieur que le temps de traitement restant de la tache courant, alors cette tache est éxécuté en premier.
+
+
+Pour mettre en place ces politiques, il a fallu modifier les fonctions =run_task=, et =push_task=. Ce sont deux fonctions internes à notre simulateurs.
+
+
+** Code complet
+
+#+begin_src R :session :exports both
+library(ggplot2);
+
+simulate = function(N = 5, lambda = .7, mu = 1, type="gamma", scheduler="srptf") {
+    # Generation of incoming times
+    t_in = cumsum(rexp(N, lambda));
+    next_arrival = 1;
+    # Generation of service time
+    t_s = switch(type,
+                     exp = rexp(N, 1/mu),
+                     det = rep(times=N, 1/mu),
+                     unif = runif(N, min=.5/mu, max=1.5/mu),
+                     gamma = {
+                         rate = mu
+                         shape = rate
+                         rgamma(N, rate=rate, shape=shape)
+                     },
+                 );
+    t_r = t_s;
+    t_out = rep(NA, times=N);
+    running = NA;
+    waiting = c();
+    t = 0;
+
+    # Ran when the clock is updated
+    # Update the remaining running time of currently running task if any
+    update_running = function() {    
+        #print("UPDATE RUNNING")
+        if(!is.na(running)) {
+            t_r[running] <<- t_r[running] - dt
+            if(t_r[running] <= 0) {
+                t_out[running] <<- t
+                running <<- NA
+            }
+        }
+    }
+
+    # Ran when a new task arrived
+    # Update the variables 'waiting', 'next_arrival' and 'running' depending of the current policy
+    push_task = function(){
+        #print("RUN TASK")
+        # New taks are always added at the end of the list waiting
+        switch(scheduler,
+            fifo={
+                # FIFO : New task added at the end of the list waiting
+                waiting <<- c(waiting, next_arrival)
+            },
+            lifo={
+                # LIFO : New task added at the end of the list waiting
+                waiting <<- c(waiting, next_arrival)
+            },
+            lifop={
+                # LIFOP : If a task is running, place it in the waiting list. Update running to newly arrived task
+                if(!is.na(running)){
+                    waiting <<- c(waiting, running)
+                }
+                running <<- next_arrival
+            },
+            srptf={
+                # SRPTF : Check it new taks has a lower t_s than the currently remainin one.
+                # Place it in waiting list if not
+                if(!is.na(running) && t_r[next_arrival] < t_r[running]){
+                    waiting <<- c(waiting, running)
+                    running <<- next_arrival
+                } else {
+                    waiting <<- c(waiting, next_arrival)
+                }
+            },
+        )
+        # Is it the last arrival ?
+        if(next_arrival < N){
+            next_arrival <<- next_arrival + 1
+        }else{
+            next_arrival <<- NA
+        }
+    }
+
+    # Update the structures to simulate the running
+    run_task = function(){
+        #print("RUN TASK")
+        # Replace task if none are running
+        if(is.na(running)){
+            nbAttentes = length(waiting)
+            if(nbAttentes > 0){
+                switch(scheduler,
+                    fifo={
+                        # FIFO : Extract the firstly added waiting task
+                        running <<- waiting[1]
+                        waiting <<- waiting[-1]
+                    },
+                    lifo={
+                        # LIFO : Extract the lastly added waiting task
+                        running <<- waiting[nbAttentes]
+                        waiting <<- waiting[-nbAttentes]
+                    },
+                    lifop={
+                        # LIFOP : Extract the lastly added waiting task
+                        running <<- waiting[nbAttentes]
+                        waiting <<- waiting[-nbAttentes]
+                    },
+                    srptf={
+                        # SRPTF : Extract the task with the shortest remaining processing time
+
+                        # Search the task withing waiting with the lowest remaining treatment time (t_r)
+                        # Set the first waiting task as the minimum for now
+                        minTaskID = waiting[1]
+                        minTaskIndex = 1
+                        currentWaitingIndex = 1
+
+                        for(taskId in waiting[-1]){
+                            currentWaitingIndex = currentWaitingIndex + 1
+                            if(t_r[taskId] < t_r[minTaskID]){
+                                minTaskId = taskId
+                                minTaskIndex = currentWaitingIndex
+                            }
+                        }
+
+                        # Extract the task in waiting
+                        running <<- waiting[minTaskIndex]
+                        waiting <<- waiting[-minTaskIndex]
+                    },
+
+                )
+            }
+        }
+    }
+
+    while(T) {
+        #print("#######");
+        #print(t_in);
+        #print(t_s);
+        #print(t_r);
+        #print(t_out);
+        # computing dt
+        dt1 = NA
+        dt2 = NA
+        if(!is.na(next_arrival)) { dt1 = t_in[next_arrival] - t}
+        if(!is.na(running)) { dt2 = t_r[running] }
+        if (is.na(dt1) & is.na(dt2)) { break; }
+
+        dt = min(c(dt1,dt2),na.rm=T)
+
+        ## print(dt);
+
+        t = t + dt;
+        update_running();
+        if(!is.na(next_arrival)) { 
+            if(t_in[next_arrival]==t) {
+                # Conditions séparated in 2 to remove warning
+                push_task();
+            }
+        }
+        run_task();
+        #print("#######");
+    }
+
+    data.frame(t_in=t_in, t_s=t_s, t_out=t_out)
+}
+#+end_src
+
+#+RESULTS:
+
+
+
+
+** Analyse
+
+Au cours de cette analyse, nous allons comparer pour chaque politique de file d'attente l'impact du taux d'arrivé puis celle
+de la variance du temps de service.
+
+
+*** Impact du taux d'arrivé
+
+Nous avons pu voir en cours qu'un système à file d'attente est stable tant que le taux d'arrivé est inférieur au taux de sortie.
+Dans cette premières expérience, nous allons retrouver ce résultat par la simulation afin d'avoir une vue d'ensemble de ce phénomène
+et essayer de voir par la même occassion si la politique sur la file d'attente des requètes va influencer le taux limite à partir
+duquel le système ne sera plus stable.
+
+
+Pour cela, nous allons fixe le nombre de client en entrée à 3000, le taux de traitement à 1, et utiliser la génération gamma pour 
+les temps de traitements. Pour chacune des politiques de file d'attentes, nous allons faire varier lambda entre 0 et 1.
+
+Afin d'assurer que les conditions de tous les tests sont similaire pour chacun des politiques, nous allons réinitialiser la graine
+de génération juste avant le début de l'utilisation d'une nouvelle politique. Ainsi, les mêmes données seront utilisés
+pour chaque politique.
+
+
+#+begin_src R :session :exports both
+N=3000
+mu=1
+type="gamma"
+schedulerType = rbind("fifo", "lifo", "lifop", "srptf")
+
+# Creation de la dataframe globale qui va contenir tous les résultats
+df_tar = data.frame();
+for (scheduler in schedulerType) {
+    set.seed(42) 
+
+    # Lambda varie de 0 à 1 avec un pac de 0.02
+    for(lambda in c(seq(from=0, to=1, by=.02))) {
+        # Simulation
+        df = simulate(N=N, lambda=lambda, mu=mu, type=type, scheduler=scheduler)
+        # Calcul des temps de réponses pour chaque entré de la dataframe
+        t_resp = df$t_out - df$t_in;
+        # Rajout de l'information resp_avg et resp_err dans la dataframe globale
+        df_tar = rbind(df_tar, data.frame(scheduler=scheduler, lambda=lambda, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+    }
+}
+#+end_src
+
+#+RESULTS:
+
+La simulation étant effectué, nous allons maintenant visualiser pour chaque politique de file, les temps de traitements moyen. Sur chacun
+des graphique sera également place la droite 1 / (1-x). Cette droite (en rouge) nous permettra de mieux voir les différences
+entre les 4 graphiques.
+
+#+begin_src R :results output graphics :file "data/tauxArriveeOverview.png" :exports both :width 800 :height 800 :session
+myrate = function(x) { 1/(1-x) }
+ggplot(df_tar, aes(x=lambda,y=resp_avg)) + 
+    facet_wrap(~scheduler,) +
+    labs(title= "Temps de réponse moyen en fonction de la charge en entrée") +
+    xlab("Taux d'entrée") +
+    ylab("Temps de réponse") +
+    geom_point() + 
+    geom_line() +
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    stat_function(fun = myrate, geom = "line", color="red") +
+    xlim(0,1) + 
+    ylim(0,50) +
+    geom_vline(xintercept = 1) + 
+    geom_hline(yintercept = 1) + 
+    theme_bw()
+#+end_src
+
+#+RESULTS:
+[[file:data/globalOverview.png]]
+
+
+
+Le premier résultat que nous voulions vérifier est bien confirmé. Nous voyons bien que lorsque le taux d'entré s'approche de 1 (le taux de sorite),
+le système devient instable. 
+
+Le taux critique semble être similaire pour toutes les politiques. En revanche, il semble que la politique "Shortest Remaining Processing Time First"
+résiste beaucoup mieux à la charge que les autres. En effet, la courbe lié à cette politique indique que les temps de traitements sont en moyenne
+bien plus faible pour des taux de charge supérieur.
+
+
+
+Nous allons donc observer le comportement du système lorsque l'on s'approche du taux limite. Nous allons donc effectuer les mêmes mesures mais avec un
+lambda qui évolue entre 0.8 et 1 et avec un pas de 0.01.
+
+#+begin_src R :session :exports both
+
+# Creation de la dataframe globale qui va contenir tous les résultats
+df_tar2 = data.frame();
+for (scheduler in schedulerType) {
+    set.seed(42) 
+
+    # Lambda varie de 0.8 à 1 avec un pac de 0.005
+    for(lambda in c(seq(from=0.8, to=1, by=.005))) {
+        # Simulation
+        df = simulate(N=N, lambda=lambda, mu=mu, type=type, scheduler=scheduler)
+        # Calcul des temps de réponses pour chaque entré de la dataframe
+        t_resp = df$t_out - df$t_in;
+        # Rajout de l'information resp_avg et resp_err dans la dataframe globale
+        df_tar2 = rbind(df_tar2, data.frame(scheduler=scheduler, lambda=lambda, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+    }
+}
+#+end_src
+
+#+RESULTS:
+
+#+begin_src R :results output graphics :file "data/tauxArriveeZoom.png" :exports both :width 800 :height 800 :session
+myrate = function(x) { 1/(1-x) }
+ggplot(df_tar2, aes(x=lambda, y=resp_avg)) + 
+    facet_wrap(~scheduler,) +
+    labs(title= "Temps de réponse moyen en fonction de la charge en entrée") +
+    xlab("Taux d'entrée") +
+    ylab("Temps de réponse") +
+    geom_point() + 
+    geom_line() +
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    stat_function(fun = myrate, geom = "line", color="red") +
+    xlim(.8, 1) + 
+    ylim(0, 50) +
+    geom_vline(xintercept = 1) + 
+    geom_hline(yintercept = 1) + 
+    theme_bw()
+#+end_src
+
+#+RESULTS:
+[[file:data/.png]]
+
+Avec cette vision plus précise, nous pouvons voir que la politique LIFO et LIFO avec préemption sont très similaire.
+Les temps de réponse moyen varient très peu entre les deux politiques. L'erreur présenté de la valeur moyenne
+est également presque la même. La politique FIFO semble apporte des valeurs moyenne presque équivalentes mais avec en revanche
+une erreur beaucoup plus faible.
+
+La politique SRPTF a quand à elle des valeurs moyennes bien inférieures aux trois politiques précédentes et l'erreur présenté
+est également bien plus faible. Ce que n'est que lorsque lambra est supérieur à 0.97 que les temps moyens commence à s'envoler.
+Pour les trois autres politiques, il est possible de constater des augmentations dès que lambda ateind 0.95. La différence 
+entre ces deux valeurs semble faible mais avec de très gros systèmes, elle pourrait se révéler conséquente.
+
+
+A partir de ces deux graphiques, nous pouvons faire les conclusions suivantes :
+- Avec une charge augmentant, la politique SRPTF permet de conserver des temps de services plus faible que les politiques FIFO, LIFO et LIFO avec préemption
+- Avec la politique SRPTF, le système est moins impacté lorsque la charge en entrée est proche de la charge limite qu'avec les politiques FIFO, LIFO et LIFO avec préemption
+
+*** Impact de la variance de temps de service
+
+Pour cette seconde série d'expérience, nous voulons nous intéresser à l'impact de la variance du temps de services. Pour ce faire, nous allons donc fixer tous les paramètres excepté \mu. En faisant
+varier mu, nous allons pouvoir controler la variance de notre génération. Etant donnée la façon dont nous générons avec la loi gamma, la variance de notre loi vaut 1/\mu.
+
+
+Cette fois, nous allons donc fixer le nombre de clients en entrée à 5000, lambda à 0.7 et faire varier mu entre 0.01 et 2, impliquant donc que la variance va varier entre 0.5 et 10. 
+
+#+begin_src R :session :exports both
+N=5000
+lambda=0.7
+type="gamma"
+schedulerType = rbind("fifo", "lifo", "lifop", "srptf")
+
+# Creation de la dataframe globale qui va contenir tous les résultats
+df_var = data.frame();
+for (scheduler in schedulerType) {
+    set.seed(42) 
+
+    # mu varie de 0.1 à 2 avec un pac de 0.01
+    for(mu in c(seq(from=0.1, to=2, by=.01))) {
+        # Simulation
+        df = simulate(N=N, lambda=lambda, mu=mu, type=type, scheduler=scheduler)
+        # Calcul des temps de réponses pour chaque entré de la dataframe
+        t_resp = df$t_out - df$t_in;
+        # Rajout de l'information resp_avg et resp_err dans la dataframe globale
+        df_var = rbind(df_var, data.frame(scheduler=scheduler, var=1/mu, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+    }
+}
+#+end_src
+
+#+RESULTS:
+
+#+begin_src R :results output graphics :file "data/varTpsServiceOverview.png" :exports both :width 800 :height 800 :session
+
+ggplot(df_var, aes(x=var, y=resp_avg)) + 
+    facet_wrap(~scheduler,) +
+    labs(title= "Temps de réponse moyen en fonction de la variance du temps de service") +
+    xlab("Variance du temps de service") +
+    ylab("Temps de réponse") +
+    geom_point() + 
+    geom_line() +
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    theme_bw()
+#+end_src
+
+#+RESULTS:
+[[file:data/varTpsServiceOverview.png]]
+
+Sur ces quatres graphiques, nous pouvons visualiser les temps de réponse moyen en fonction de la variance des temps de traitements.
+Comme nous pouvions nous y attendre sur les politiques FIFO et LIFO, lorsque la variance augmente, les temps de réponse moyens
+vont augmenter en conséquence. 
+
+En revanche, avec les politiques LIFO avec préemption et SRPTF, l'influence de la variance des temps de services semble très faible
+voir inéxistante. C'est un résultat qui semble évident pour la politique SRPTF mais qui parait étonnant pour la politique LIFO 
+avec préemption.
+
+
+
+Afin de vérifier qu'il ne s'agit pas d'un résultat uniquement vrai sur des petites valeurs de variances, nous allons refaire
+cette expérience avec des variances entre 10 et 100.
+
+#+begin_src R :session :exports both
+N=5000
+lambda=0.7
+type="gamma"
+schedulerType = rbind("fifo", "lifo", "lifop", "srptf")
+
+# Creation de la dataframe globale qui va contenir tous les résultats
+df_var2 = data.frame();
+for (scheduler in schedulerType) {
+    set.seed(42) 
+
+    # mu varie de 0.01 à 0.1 avec un pac de 0.01
+    for(mu in c(seq(from=0.01, to=0.1, by=.01))) {
+        # Simulation
+        df = simulate(N=N, lambda=lambda, mu=mu, type=type, scheduler=scheduler)
+        # Calcul des temps de réponses pour chaque entré de la dataframe
+        t_resp = df$t_out - df$t_in;
+        # Rajout de l'information resp_avg et resp_err dans la dataframe globale
+        df_var2 = rbind(df_var2, data.frame(scheduler=scheduler, var=1/mu, resp_avg = mean(t_resp), resp_err = 2*sd(t_resp)/sqrt(length(t_resp))));
+    }
+}
+#+end_src
+
+#+begin_src R :results output graphics :file "data/varTpsServiceBig.png" :exports both :width 800 :height 800 :session
+ggplot(df_var2, aes(x=var, y=resp_avg)) + 
+    facet_wrap(~scheduler,) +
+    labs(title= "Temps de réponse moyen en fonction de la variance du temps de service") +
+    xlab("Variance du temps de service") +
+    ylab("Temps de réponse") +
+    geom_point() + 
+    geom_line() +
+    geom_errorbar(aes(ymin=resp_avg-2*resp_err, ymax=resp_avg+2*resp_err)) +
+    theme_bw()
+#+end_src
+
+#+RESULTS:
+[[file:data/varTpsServiceBig.png]]
+
+
+
+Le résultat semble se confirmer. On peut tout de même voir que l'erreur associé à la politique LIFO avec préemption est plus grande que celle 
+de la politique SRPTF.
+
+
+A partir de ces deux graphiques, nous pouvons faire la conclusions suivante :
+- Avec une variance des temps de traitement augmentant, les politiques LIFO avec préemption et SRPTF permettent de conserver des temps de services plus faible que les politiques FIFO, LIFO.

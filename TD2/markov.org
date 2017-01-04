@@ -1,0 +1,15 @@
+# -*- coding: utf-8 -*-
+#+STARTUP: overview indent inlineimages
+#+TITLE:       Markov chains
+#+AUTHOR:      Rémi GATTAZ
+#+LANGUAGE:    en
+#+TAGS: IMPORTANT(i) TEST(t) DEPRECATED(d) noexport(n)
+
+Nous allons génrer des graphes et calculer les probablités de se trouver dans un noeud du graphes après une marche aléatoire.
+
+* Fonctions de générations
+
+* Marche aléatoire
+
+*
+
